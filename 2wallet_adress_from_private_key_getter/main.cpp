@@ -11,6 +11,7 @@ g++ main.cpp -lsecp256k1 && ./a.out
 #include <array>
 #include <string>
 #include <sstream>
+#include <fstream>
 
 /* ===================== KECCAK-256 ===================== */
 
@@ -137,6 +138,85 @@ static std::string to_checksum_address(const uint8_t addr20[20])
     return out;
 }
 
+/* ===================== HEURISTICS ===================== */
+
+// Heuristic for repeating characters from beginning and end (symmetry)
+int heuristic_symmetry(const std::string &addr)
+{
+    int score = 0;
+    size_t len = addr.size() - 2; // excluding "0x"
+    for (size_t i = 0; i < len / 2; ++i)
+    {
+        if (addr[2 + i] == addr[addr.size() - 1 - i])
+        {
+            score += 10;
+        }
+        else
+        {
+            break;
+        }
+    }
+    return score;
+}
+
+// Heuristic for leading zeros
+int heuristic_leading_zeros(const std::string &addr)
+{
+    int count = 0;
+    for (size_t i = 2; i < addr.size(); ++i)
+    {
+        if (addr[i] == '0')
+        {
+            count++;
+        }
+        else
+        {
+            break;
+        }
+    }
+    return count * 5;
+}
+
+// Heuristic for trailing zeros
+int heuristic_trailing_zeros(const std::string &addr)
+{
+    int count = 0;
+    for (int i = addr.size() - 1; i >= 2; --i)
+    {
+        if (addr[i] == '0')
+        {
+            count++;
+        }
+        else
+        {
+            break;
+        }
+    }
+    return count * 5;
+}
+
+// Heuristic for all same characters
+int heuristic_all_same(const std::string &addr)
+{
+    char c = addr[2];
+    bool all_same = true;
+    for (size_t i = 3; i < addr.size(); ++i)
+    {
+        if (addr[i] != c)
+        {
+            all_same = false;
+            break;
+        }
+    }
+    return all_same ? 100 : 0;
+}
+
+// Main heuristic function
+int main_heuristic(const std::string &addr)
+{
+    return heuristic_symmetry(addr) + heuristic_leading_zeros(addr) + heuristic_trailing_zeros(addr) + heuristic_all_same(addr);
+}
+
 /* ===================== MAIN ===================== */
 
 int main()
@@ -148,26 +228,27 @@ int main()
         return 1;
     ////////////////////////////////
 
-    for (int count = 0; count < 5; ++count) {
+    while (1) {
         uint8_t private_key[32];
 
         ////// Private key generation
-        //do {
-        gen.generate_into(reinterpret_cast<uint64_t*>(private_key));
+        // do {
+        gen.generate_into(reinterpret_cast<uint64_t *>(private_key));
         //} while (!secp256k1_ec_seckey_verify(ctx, private_key));  // very unlikely, can be removed for optimization
         /////////////////////////////
 
         ////// DEBUG PRINTING
-        std::cout << "Private key:    ";
-        for (size_t i = 0; i < 32; ++i) {
-            std::cout << std::hex << std::setw(2) << std::setfill('0') << static_cast<unsigned>(private_key[i]);
-        }
-        std::cout << std::endl;
+        // std::cout << "Private key:    ";
+        // for (size_t i = 0; i < 32; ++i) {
+        //     std::cout << std::hex << std::setw(2) << std::setfill('0') << static_cast<unsigned>(private_key[i]);
+        // }
+        // std::cout << std::endl;
         /////////////////////
 
         /////// Public key creation
         secp256k1_pubkey pubkey;
-        if (!secp256k1_ec_pubkey_create(ctx, &pubkey, private_key)) {
+        if (!secp256k1_ec_pubkey_create(ctx, &pubkey, private_key))
+        {
             std::cerr << "Failed to create pubkey\n";
             continue;
         }
@@ -180,11 +261,12 @@ int main()
         ///////////////////////////////
 
         ////// DEBUG PRINTING
-        std::cout << "Public key:     ";
-        for (size_t i = 0; i < 65; ++i) {  // skip 0x04 prefix, print 64 bytes
-            std::cout << std::hex << std::setw(2) << std::setfill('0') << static_cast<unsigned>(pubkey_ser[i]);
-        }
-        std::cout << std::endl;
+        // std::cout << "Public key:     ";
+        // for (size_t i = 0; i < 65; ++i)
+        // { // skip 0x04 prefix, print 64 bytes
+        //     std::cout << std::hex << std::setw(2) << std::setfill('0') << static_cast<unsigned>(pubkey_ser[i]);
+        // }
+        // std::cout << std::endl;
         /////////////////////
 
         ///// Hash creation from public key
@@ -197,17 +279,19 @@ int main()
         memcpy(wallet_address, hash + 12, 20);
         /////////////////////////////////
 
+        std::string addr_str = to_checksum_address(wallet_address);
         ////// DEBUG PRINTING
-        std::cout << "Wallet address: " << to_checksum_address(wallet_address) << std::endl
-                  << std::endl;
+        // std::cout << "Wallet address: " << addr_str << std::endl
+        //           << std::endl;
         /////////////////////
 
-        // here i will take wallet adress and send to heuristic function, which will evaluate how beautifull is adress
-        // and it will assign score to adress
-        // and if score is more than ... lets say 10 points, it will save adress to file called "PrettyAdreses.csv"
-        // in format:
-        // <score>,<wallet_address>,<private_key>
-        // 101,0x000035C1284Ad65f416f9a10B05f6d1f8c8A0000,044587cc492051b8e1e0275c68f6d10154a41c207282ea7dccf8755f2138e2abb13dba8bd9d602442936cb5bc73a9c6c55fac3cfad5affe574d7bae2f758aa6b3b
+        // Heuristic evaluation
+        int score = main_heuristic(addr_str);
+        if (score > 30)
+        {
+            std::ofstream file("PrettyAddresses.csv", std::ios::app);
+            file << score << "," << addr_str << "," << to_hex(private_key, 32) << std::endl;
+        }
     }
 
     secp256k1_context_destroy(ctx);
