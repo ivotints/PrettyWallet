@@ -141,42 +141,73 @@ static std::string to_checksum_address(const uint8_t addr20[20])
 
 int main()
 {
+    ///////////////////initialization
     PrivateKeyGenerator gen;
-    secp256k1_context *ctx = secp256k1_context_create(SECP256K1_CONTEXT_SIGN);  // Why do we need context?
+    secp256k1_context *ctx = secp256k1_context_create(SECP256K1_CONTEXT_SIGN);
     if (!ctx)
         return 1;
+    ////////////////////////////////
 
-    for (int count = 0; count < 5; ++count) { // will be infinite loop which produices a lot of good wallets
-        uint64_t rnd[4];
+    for (int count = 0; count < 5; ++count) {
+        uint8_t private_key[32];
 
-        do {
-            gen.generate_into(rnd);
-        } while (!secp256k1_ec_seckey_verify(ctx, reinterpret_cast<const uint8_t*>(rnd))); // is that correct?
+        ////// Private key generation
+        //do {
+        gen.generate_into(reinterpret_cast<uint64_t*>(private_key));
+        //} while (!secp256k1_ec_seckey_verify(ctx, private_key));  // very unlikely, can be removed for optimization
+        /////////////////////////////
 
+        ////// DEBUG PRINTING
         std::cout << "Private key:    ";
-        for (auto v : rnd)
-            std::cout << std::hex << std::setw(2) << std::setfill('0') << v;
+        for (size_t i = 0; i < 32; ++i) {
+            std::cout << std::hex << std::setw(2) << std::setfill('0') << static_cast<unsigned>(private_key[i]);
+        }
         std::cout << std::endl;
+        /////////////////////
 
+        /////// Public key creation
         secp256k1_pubkey pubkey;
-        if (!secp256k1_ec_pubkey_create(ctx, &pubkey, reinterpret_cast<const uint8_t*>(rnd)))
-        {
+        if (!secp256k1_ec_pubkey_create(ctx, &pubkey, private_key)) {
             std::cerr << "Failed to create pubkey\n";
             continue;
         }
+        ////////////////////////////
 
+        ////// Public key serialization
         uint8_t pubkey_ser[65];
         size_t pubkey_len = sizeof(pubkey_ser);
         secp256k1_ec_pubkey_serialize(ctx, pubkey_ser, &pubkey_len, &pubkey, SECP256K1_EC_UNCOMPRESSED);
+        ///////////////////////////////
 
+        ////// DEBUG PRINTING
+        std::cout << "Public key:     ";
+        for (size_t i = 0; i < 65; ++i) {  // skip 0x04 prefix, print 64 bytes
+            std::cout << std::hex << std::setw(2) << std::setfill('0') << static_cast<unsigned>(pubkey_ser[i]);
+        }
+        std::cout << std::endl;
+        /////////////////////
+
+        ///// Hash creation from public key
         uint8_t hash[32];
         keccak256(pubkey_ser + 1, 64, hash); // skip 0x04
+        ////////////////////////////////////
 
-        uint8_t addr20[20];
-        memcpy(addr20, hash + 12, 20);
+        ///// Wallet address copy from hash
+        uint8_t wallet_address[20];
+        memcpy(wallet_address, hash + 12, 20);
+        /////////////////////////////////
 
-        std::cout << "Wallet address: " << to_checksum_address(addr20) << std::endl
+        ////// DEBUG PRINTING
+        std::cout << "Wallet address: " << to_checksum_address(wallet_address) << std::endl
                   << std::endl;
+        /////////////////////
+
+        // here i will take wallet adress and send to heuristic function, which will evaluate how beautifull is adress
+        // and it will assign score to adress
+        // and if score is more than ... lets say 10 points, it will save adress to file called "PrettyAdreses.csv"
+        // in format:
+        // <score>,<wallet_address>,<private_key>
+        // 101,0x000035C1284Ad65f416f9a10B05f6d1f8c8A0000,044587cc492051b8e1e0275c68f6d10154a41c207282ea7dccf8755f2138e2abb13dba8bd9d602442936cb5bc73a9c6c55fac3cfad5affe574d7bae2f758aa6b3b
     }
 
     secp256k1_context_destroy(ctx);

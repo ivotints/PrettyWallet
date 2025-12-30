@@ -8,7 +8,8 @@ class PrivateKeyGenerator {
         PrivateKeyGenerator() {
             std::random_device rd;
             std::seed_seq seq{rd(), rd(), rd(), rd()};
-            rng.seed(seq);
+            // rng.seed(seq);
+            rng.seed(1); // use for debug
         }
 
         inline void generate_into(uint64_t out[4]) noexcept {
