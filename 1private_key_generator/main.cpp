@@ -1,23 +1,25 @@
-#include <array>
-#include <random>
+/*
+g++ main.cpp PrivateKeyGenerator.cpp -Ofast && time ./a.out
+*/
+
+#include "PrivateKeyGenerator.hpp"
 #include <iostream>
 #include <iomanip>
+#include <cstdint>
 
-int main() {
-    std::array<uint8_t, 32> privkey;
+static volatile uint64_t blackhole = 0;
 
-    std::random_device rd;
+int main()
+{
+    PrivateKeyGenerator gen;
 
-    for (auto &b : privkey) {
-        b = static_cast<uint8_t>(rd());
+    for (int i = 0; i < 1'000'000'000; ++i)
+    {
+        uint64_t key[4];
+        gen.generate_into(key);
+        for (auto v : key) blackhole ^= v;
     }
 
-    // here to check if it is in range 0 <= k <= n
-
-    // Вывод в hex
-    for (auto b : privkey) {
-        std::cout << std::hex << std::setw(2)
-                  << std::setfill('0') << (int)b;
-    }
-    std::cout << std::endl;
+    std::cout << std::hex << blackhole << std::endl;
+    return 0;
 }
