@@ -1,5 +1,2 @@
-i will use heuristic to find best eth wallet, the most beautiful.
-
-i will use cpp and multithreading
-
-1. i need to learn how to generate wallets.
+// repeated patterns of 2
+0x6e6e6e6e6e6e6e...6e6e6e

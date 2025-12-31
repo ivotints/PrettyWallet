@@ -362,29 +362,83 @@ int heuristic_vanity_words(const std::string &addr)
     return score;
 }
 
-// Heuristic for starting with increasing sequence
-int heuristic_starting_sequence(const std::string &addr)
+inline int get_hex_value(char c)
 {
-    int score = 0;
-    size_t len = ADDRESS_LENGTH;
-    for (size_t i = 0; i < len - 1; ++i)
+    if (c >= '0' && c <= '9')
+        return c - '0';
+    if (c >= 'a' && c <= 'f')
+        return 10 + (c - 'a');
+    return 10 + (c - 'A');
+}
+
+int heuristic_sequence(const std::string &addr)
+{
+    int max_score = 0;
+    int val = get_hex_value(addr[0]);
+    // check ascending
+    int len_asc = 1;
+    for (size_t j = 1; j < 40; ++j)
     {
-        int val1 = std::tolower(addr[i]) - '0';
-        if (val1 > 9)
-            val1 = val1 - 'a' + 10;
-        int val2 = std::tolower(addr[i + 1]) - '0';
-        if (val2 > 9)
-            val2 = val2 - 'a' + 10;
-        if (val2 == val1 + 1)
-        {
-            score += 5;
-        }
-        else
-        {
+        int next_val = get_hex_value(addr[j]);
+        if (next_val != val + 1)
             break;
-        }
+        len_asc++;
+        val = next_val;
     }
-    return score;
+
+    // check descending
+    val = get_hex_value(addr[0]);
+    int len_desc = 1;
+    for (size_t j = 1; j < 40; ++j)
+    {
+        int next_val = get_hex_value(addr[j]);
+        if (next_val != val - 1)
+            break;
+        len_desc++;
+        val = next_val;
+    }
+    max_score = len_asc + len_desc - 2;
+
+    // from end
+    val = get_hex_value(addr[39]);
+    // check descending from end
+    int len_desc_end = 1;
+    for (int j = 38; j >= 0; --j)
+    {
+        int next_val = get_hex_value(addr[j]);
+        if (next_val != val - 1)
+            break;
+        len_desc_end++;
+        val = next_val;
+    }
+
+    // check ascending from end
+    val = get_hex_value(addr[39]);
+    int len_asc_end = 1;
+    for (int j = 38; j >= 0; --j)
+    {
+        int next_val = get_hex_value(addr[j]);
+        if (next_val != val + 1)
+            break;
+        len_asc_end++;
+        val = next_val;
+    }
+    max_score += len_asc_end + len_desc_end - 2;
+
+    // bonus for starting from begining like 0 for acending, 1 for odd, f for decending.
+    int bonus = 1;
+    if (len_asc >= 2 && (addr[0] == '1' || addr[0] == '0' || addr[0] == 'a' || addr[0] == 'A'))
+        bonus = 2;
+    else if (len_desc >= 2 && (addr[0] == '9' || addr[0] == 'f' || addr[0] == 'F'))
+        bonus = 2;
+    else if (len_desc_end >= 2 && (addr[39] == 'f' || addr[39] == 'F' || addr[39] == '9'))
+        bonus = 2;
+    else if (len_asc_end >= 2 && (addr[39] == '1' || addr[39] == '0' || addr[39] == 'a' || addr[39] == 'A'))
+        bonus = 2;
+
+    if (max_score >= 2)
+        return bonus * (1 << (max_score - 1));
+    return 0;
 }
 
 // Heuristic for long runs of same character - more for start/end
@@ -425,24 +479,17 @@ int heuristic_long_runs(const std::string &addr)
     return points;
 }
 
-// Heuristic for mostly zeros or F's
-int heuristic_mostly_special(const std::string &addr)
+// Heuristic for concentration of characters (like monopoly index)
+int heuristic_mostly_same(const std::string &addr)
 {
-    int zero_count = 0;
-    int f_count = 0;
-    for (size_t i = 0; i < ADDRESS_LENGTH; ++i)
-    {
-        if (addr[i] == '0')
-            zero_count++;
-        else if (tolower(addr[i]) == 'f')
-            f_count++;
+    std::map<char, int> count; // map is slow, use something else
+    for (char c : addr)
+        count[c]++;
+    int hhi = 0;
+    for (auto &p : count) {
+        hhi += p.second * p.second;
     }
-    int total = ADDRESS_LENGTH;
-    if (zero_count > total * 0.7)
-        return 25;
-    if (f_count > total * 0.7)
-        return 25;
-    return 0;
+    return std::max(0, hhi - 200); // max is separate function call, do if else
 }
 
 // Main heuristic function
@@ -458,8 +505,8 @@ int main_heuristic(const std::string &addr)
     score += heuristic_repeated_pairs(addr);
     // score += heuristic_vanity_words(addr);
     score += heuristic_long_runs(addr);
-    score += heuristic_mostly_special(addr);
-    score += heuristic_starting_sequence(addr);
+    score += heuristic_mostly_same(addr);
+    score += heuristic_sequence(addr);
     return score;
 }
 
@@ -478,7 +525,8 @@ void worker_function()
     {
         uint8_t private_key[32];
 
-        for (int k = 0; k < 4; ++k) {
+        for (int k = 0; k < 4; ++k)
+        {
             reinterpret_cast<uint64_t *>(private_key)[k] = rng();
         }
 
@@ -537,7 +585,7 @@ int main()
 
     // Display thread
     std::thread display_thread([]()
-                                {
+                               {
     auto start_time = std::chrono::high_resolution_clock::now();
     while (!stop_flag)
     {
@@ -577,7 +625,7 @@ int main()
     infile.close();
 
     std::sort(results.begin(), results.end(), [](const WalletResult &a, const WalletResult &b)
-                { return a.score > b.score; });
+              { return a.score > b.score; });
 
     std::ofstream outfile("PrettyAddresses.csv");
     for (const auto &res : results)
