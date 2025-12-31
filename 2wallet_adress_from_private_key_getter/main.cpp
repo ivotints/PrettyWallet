@@ -465,15 +465,22 @@ int main_heuristic(const std::string &addr)
 
 void worker_function()
 {
-    PrivateKeyGenerator gen;
     secp256k1_context *ctx = secp256k1_context_create(SECP256K1_CONTEXT_SIGN);
     if (!ctx)
         return;
 
+    std::random_device rd;
+    std::seed_seq seq{rd(), rd(), rd(), rd()};
+    std::mt19937_64 rng;
+    rng.seed(seq);
+
     while (!stop_flag)
     {
         uint8_t private_key[32];
-        gen.generate_into(reinterpret_cast<uint64_t *>(private_key));
+
+        for (int k = 0; k < 4; ++k) {
+            reinterpret_cast<uint64_t *>(private_key)[k] = rng();
+        }
 
         secp256k1_pubkey pubkey;
         if (!secp256k1_ec_pubkey_create(ctx, &pubkey, private_key))
@@ -492,7 +499,7 @@ void worker_function()
         std::string addr_str = to_checksum_address(wallet_address);
 
         int score = main_heuristic(addr_str);
-        if (score > 70)
+        if (score > 50)
         {
             std::lock_guard<std::mutex> lock(file_mutex);
             std::ofstream file("PrettyAddresses.csv", std::ios::app);
