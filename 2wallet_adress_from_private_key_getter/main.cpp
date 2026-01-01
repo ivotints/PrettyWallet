@@ -499,6 +499,7 @@ int main_heuristic(const std::string &addr)
     score += heuristic_symmetry(addr);
     score += heuristic_leading_and_trailing_repeats(addr);
     score += heuristic_mostly_one_char(addr);
+
     score += heuristic_sequential(addr);
     score += heuristic_unique_chars(addr);
     score += heuristic_alternating(addr);
@@ -611,6 +612,8 @@ int main()
     std::vector<WalletResult> results;
     std::ifstream infile("PrettyAddresses.csv");
     std::string line;
+    // Skip header line
+    std::getline(infile, line);
     while (std::getline(infile, line))
     {
         std::stringstream ss(line);
@@ -628,6 +631,7 @@ int main()
               { return a.score > b.score; });
 
     std::ofstream outfile("PrettyAddresses.csv");
+    outfile << "score,address,private_key" << std::endl;
     for (const auto &res : results)
     {
         outfile << res.score << "," << res.address << "," << res.private_key << std::endl;
