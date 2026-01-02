@@ -24,23 +24,27 @@ g++ -Ofast -march=native -flto -funroll-loops main.cpp -lsecp256k1 -pthread && .
 #include <cstdint>
 #include <unordered_set>
 
-constexpr int ADDRESS_LENGTH = 40;
+#include "vanity.hpp"
 
 // Pre-computed lookup tables for hex conversion (initialized once)
-alignas(64) static char hex_chars_lower[16] = {'0','1','2','3','4','5','6','7','8','9','a','b','c','d','e','f'};
+alignas(64) static char hex_chars_lower[16] = {'0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f'};
 alignas(64) static int hex_values[256];
 alignas(64) static bool hex_valid[256];
 
 // Initialize lookup tables
-static struct HexTableInit {
-    HexTableInit() {
+static struct HexTableInit
+{
+    HexTableInit()
+    {
         std::memset(hex_values, 0, sizeof(hex_values));
         std::memset(hex_valid, 0, sizeof(hex_valid));
-        for (int i = 0; i < 10; ++i) {
+        for (int i = 0; i < 10; ++i)
+        {
             hex_values['0' + i] = i;
             hex_valid['0' + i] = true;
         }
-        for (int i = 0; i < 6; ++i) {
+        for (int i = 0; i < 6; ++i)
+        {
             hex_values['a' + i] = 10 + i;
             hex_values['A' + i] = 10 + i;
             hex_valid['a' + i] = true;
@@ -151,12 +155,16 @@ static std::string to_hex(const uint8_t *data, size_t len, bool uppercase = fals
 {
     std::string result;
     result.reserve(len * 2);
-    for (size_t i = 0; i < len; ++i) {
+    for (size_t i = 0; i < len; ++i)
+    {
         char c1 = hex_chars_lower[data[i] >> 4];
         char c2 = hex_chars_lower[data[i] & 0xF];
-        if (uppercase) {
-            if (c1 >= 'a') c1 -= 32;
-            if (c2 >= 'a') c2 -= 32;
+        if (uppercase)
+        {
+            if (c1 >= 'a')
+                c1 -= 32;
+            if (c2 >= 'a')
+                c2 -= 32;
         }
         result.push_back(c1);
         result.push_back(c2);
@@ -167,7 +175,8 @@ static std::string to_hex(const uint8_t *data, size_t len, bool uppercase = fals
 // Fast hex conversion directly to char array (no allocation)
 static void to_hex_fast(const uint8_t *data, size_t len, char *out)
 {
-    for (size_t i = 0; i < len; ++i) {
+    for (size_t i = 0; i < len; ++i)
+    {
         out[i * 2] = hex_chars_lower[data[i] >> 4];
         out[i * 2 + 1] = hex_chars_lower[data[i] & 0xF];
     }
@@ -201,21 +210,25 @@ static std::string to_checksum_address(const uint8_t addr20[20])
 /* ===================== HEURISTICS ===================== */
 
 // Fast inline hex value lookup
-inline int get_hex_value(char c) {
+inline int get_hex_value(char c)
+{
     return hex_values[static_cast<unsigned char>(c)];
 }
 
 // Convert address to lowercase in-place (for pattern matching)
-inline void to_lower_inplace(char* addr, size_t len) {
-    for (size_t i = 0; i < len; ++i) {
-        if (addr[i] >= 'A' && addr[i] <= 'F') {
+inline void to_lower_inplace(char *addr, size_t len)
+{
+    for (size_t i = 0; i < len; ++i)
+    {
+        if (addr[i] >= 'A' && addr[i] <= 'F')
+        {
             addr[i] += 32;
         }
     }
 }
 
 // Heuristic for repeating characters from beginning and end (symmetry)
-int heuristic_symmetry(const char* addr)
+int heuristic_symmetry(const char *addr)
 {
     int score = 0;
     for (int i = 0; i < ADDRESS_LENGTH / 2; ++i)
@@ -233,7 +246,7 @@ int heuristic_symmetry(const char* addr)
 }
 
 // Heuristic for leading repeats of same character
-int heuristic_leading_and_trailing_repeats(const char* addr)
+int heuristic_leading_and_trailing_repeats(const char *addr)
 {
     char leading_c = addr[0];
     int leading_count = 1;
@@ -282,26 +295,33 @@ int heuristic_leading_and_trailing_repeats(const char* addr)
 }
 
 // Heuristic for alternating characters (ABABAB...) from beginning and end
-int heuristic_alternating(const char* addr)
+int heuristic_alternating(const char *addr)
 {
     int score = 0;
 
     // From beginning
     char a = addr[0];
     char b = addr[1];
-    if (a >= 'A' && a <= 'F') a += 32;
-    if (b >= 'A' && b <= 'F') b += 32;
+    if (a >= 'A' && a <= 'F')
+        a += 32;
+    if (b >= 'A' && b <= 'F')
+        b += 32;
 
-    if (a != b) {
+    if (a != b)
+    {
         int len = 2;
-        for (int i = 2; i < ADDRESS_LENGTH; ++i) {
+        for (int i = 2; i < ADDRESS_LENGTH; ++i)
+        {
             char c = addr[i];
-            if (c >= 'A' && c <= 'F') c += 32;
+            if (c >= 'A' && c <= 'F')
+                c += 32;
             char expected = (i % 2 == 0) ? a : b;
-            if (c != expected) break;
+            if (c != expected)
+                break;
             len++;
         }
-        if (len >= 4) {
+        if (len >= 4)
+        {
             score += (len - 2) * 2;
         }
     }
@@ -309,20 +329,27 @@ int heuristic_alternating(const char* addr)
     // From end
     char c1 = addr[ADDRESS_LENGTH - 2];
     char d = addr[ADDRESS_LENGTH - 1];
-    if (c1 >= 'A' && c1 <= 'F') c1 += 32;
-    if (d >= 'A' && d <= 'F') d += 32;
+    if (c1 >= 'A' && c1 <= 'F')
+        c1 += 32;
+    if (d >= 'A' && d <= 'F')
+        d += 32;
 
-    if (c1 != d) {
+    if (c1 != d)
+    {
         int len = 2;
-        for (int i = ADDRESS_LENGTH - 3; i >= 0; --i) {
+        for (int i = ADDRESS_LENGTH - 3; i >= 0; --i)
+        {
             char c = addr[i];
-            if (c >= 'A' && c <= 'F') c += 32;
+            if (c >= 'A' && c <= 'F')
+                c += 32;
             int pos_from_end = ADDRESS_LENGTH - 1 - i;
             char expected = (pos_from_end % 2 == 0) ? c1 : d;
-            if (c != expected) break;
+            if (c != expected)
+                break;
             len++;
         }
-        if (len >= 4) {
+        if (len >= 4)
+        {
             score += (len - 2) * 2;
         }
     }
@@ -331,114 +358,64 @@ int heuristic_alternating(const char* addr)
 }
 
 // Heuristic for repeated pairs (AABBCCDD...)
-int heuristic_repeated_pairs(const char* addr)
+int heuristic_repeated_pairs(const char *addr)
 {
     int score = 0;
 
     // From beginning
     int pair_count = 0;
-    for (int i = 0; i + 1 < ADDRESS_LENGTH; i += 2) {
+    for (int i = 0; i + 1 < ADDRESS_LENGTH; i += 2)
+    {
         char c1 = addr[i];
         char c2 = addr[i + 1];
-        if (c1 >= 'A' && c1 <= 'F') c1 += 32;
-        if (c2 >= 'A' && c2 <= 'F') c2 += 32;
-        if (c1 == c2) {
+        if (c1 >= 'A' && c1 <= 'F')
+            c1 += 32;
+        if (c2 >= 'A' && c2 <= 'F')
+            c2 += 32;
+        if (c1 == c2)
+        {
             pair_count++;
-        } else {
+        }
+        else
+        {
             break;
         }
     }
-    if (pair_count >= 2) {
+    if (pair_count >= 2)
+    {
         score += pair_count * 2;
     }
 
     // From end
     int end_pair_count = 0;
-    for (int i = ADDRESS_LENGTH - 1; i >= 1; i -= 2) {
+    for (int i = ADDRESS_LENGTH - 1; i >= 1; i -= 2)
+    {
         char c1 = addr[i - 1];
         char c2 = addr[i];
-        if (c1 >= 'A' && c1 <= 'F') c1 += 32;
-        if (c2 >= 'A' && c2 <= 'F') c2 += 32;
-        if (c1 == c2) {
+        if (c1 >= 'A' && c1 <= 'F')
+            c1 += 32;
+        if (c2 >= 'A' && c2 <= 'F')
+            c2 += 32;
+        if (c1 == c2)
+        {
             end_pair_count++;
-        } else {
+        }
+        else
+        {
             break;
         }
     }
-    if (end_pair_count >= 2) {
+    if (end_pair_count >= 2)
+    {
         score += end_pair_count * 2;
     }
 
     return (score > 0) ? (1 << score) : 0;
 }
 
-// Heuristic for containing vanity words with proper scoring
-int heuristic_vanity_words(const char* addr)
-{
-    // Make lowercase copy for matching
-    char lower[ADDRESS_LENGTH + 1];
-    for (int i = 0; i < ADDRESS_LENGTH; ++i) {
-        char c = addr[i];
-        lower[i] = (c >= 'A' && c <= 'F') ? (c + 32) : c;
-    }
-    lower[ADDRESS_LENGTH] = '\0';
+// Trie-based matching and vanity heuristic moved to tests/vanity.cpp
 
-    int score = 0;
-
-    // check for word from begining. if found, assign as much points, as word length.
-    // ace... - 3 points
-    // look next, what if there second word
-    // acebabe... - 7 points
-    // do same check from end
-    // acebabe.............................beef - 11 points
-
-    static const char *words[] = {
-        "c0ffee", "deface", "decade", "facade", "1337", "dead", "beef", "cafe",
-        "babe", "face", "fade", "feed", "c0de", "b00b", "f00d", "bead", "deaf",
-        "deed", "ace", "add", "bad", "bed", "bee", "cab", "dad", "fab", "fee",
-        "d0c"
-    };
-    const int word_count = sizeof(words) / sizeof(words[0]);
-
-    // Precompute lengths
-    int lens[sizeof(words) / sizeof(words[0])];
-    for (int i = 0; i < word_count; ++i) lens[i] = std::strlen(words[i]);
-
-    int start = 0;
-    int end = ADDRESS_LENGTH;
-
-    // Greedily match longest vanity words at the start (consecutive)
-    while (start < end) {
-        int best_len = 0;
-        for (int i = 0; i < word_count; ++i) {
-            int l = lens[i];
-            if (start + l <= end && std::memcmp(lower + start, words[i], l) == 0) {
-                if (l > best_len) best_len = l;
-            }
-        }
-        if (best_len == 0) break;
-        score += best_len;
-        start += best_len;
-    }
-
-    // Greedily match longest vanity words at the end (consecutive)
-    while (start < end) {
-        int best_len = 0;
-        for (int i = 0; i < word_count; ++i) {
-            int l = lens[i];
-            if (end - l >= start && std::memcmp(lower + end - l, words[i], l) == 0) {
-                if (l > best_len) best_len = l;
-            }
-        }
-        if (best_len == 0) break;
-        score += best_len;
-        end -= best_len;
-    }
-
-    return (score > 0) ? (1 << score) : 0;
-}
-
-int heuristic_sequence(const char* addr)
+int heuristic_sequence(const char *addr)
 {
     int max_score = 0;
     int val = hex_values[static_cast<unsigned char>(addr[0])];
@@ -509,21 +486,27 @@ int heuristic_sequence(const char* addr)
 }
 
 // Heuristic for concentration of characters (like monopoly index)
-int heuristic_mostly_same(const char* addr)
+int heuristic_mostly_same(const char *addr)
 {
     static int map[256];
     static bool initialized = false;
-    if (!initialized) {
-        for (int i = 0; i < 256; ++i) map[i] = -1;
-        for (char c = '0'; c <= '9'; ++c) map[static_cast<unsigned char>(c)] = c - '0';
-        for (char c = 'A'; c <= 'F'; ++c) map[static_cast<unsigned char>(c)] = 10 + (c - 'A');
-        for (char c = 'a'; c <= 'f'; ++c) map[static_cast<unsigned char>(c)] = 16 + (c - 'a');
+    if (!initialized)
+    {
+        for (int i = 0; i < 256; ++i)
+            map[i] = -1;
+        for (char c = '0'; c <= '9'; ++c)
+            map[static_cast<unsigned char>(c)] = c - '0';
+        for (char c = 'A'; c <= 'F'; ++c)
+            map[static_cast<unsigned char>(c)] = 10 + (c - 'A');
+        for (char c = 'a'; c <= 'f'; ++c)
+            map[static_cast<unsigned char>(c)] = 16 + (c - 'a');
         initialized = true;
     }
 
     uint8_t counts[22] = {0};
 
-    for (int i = 0; i < ADDRESS_LENGTH; i++) {
+    for (int i = 0; i < ADDRESS_LENGTH; i++)
+    {
         int index = map[static_cast<unsigned char>(addr[i])];
         ++counts[index];
     }
@@ -531,13 +514,15 @@ int heuristic_mostly_same(const char* addr)
     int hhi = 0;
     __m256i sum = _mm256_setzero_si256();
     size_t i = 0;
-    for (; i + 16 < 22; i += 16) {
-        __m128i v = _mm_loadu_si128(reinterpret_cast<__m128i*>(&counts[i]));
+    for (; i + 16 < 22; i += 16)
+    {
+        __m128i v = _mm_loadu_si128(reinterpret_cast<__m128i *>(&counts[i]));
         __m256i v16 = _mm256_cvtepu8_epi16(v);
         __m256i sq = _mm256_mullo_epi16(v16, v16);
         sum = _mm256_add_epi16(sum, sq);
     }
-    for (; i < 22; ++i) {
+    for (; i < 22; ++i)
+    {
         hhi += static_cast<int>(counts[i]) * counts[i];
     }
     __m128i low = _mm256_extracti128_si256(sum, 0);
@@ -555,7 +540,7 @@ int heuristic_mostly_same(const char* addr)
     return hhi;
 }
 
-int main_heuristic(const char* addr)
+int main_heuristic(const char *addr)
 {
     int score = 0;
     score += heuristic_symmetry(addr);
@@ -573,10 +558,12 @@ int main_heuristic(const char* addr)
 // Print per-heuristic contributions for a hardcoded address
 static void evaluate_hardcoded_address()
 {
-    const std::string full = "BEEaDdbED5d911012EaB38E2efa16Bdecf290fee";
+    const std::string full = "FeeBEE3CC37600fe267e8cB12d9597F01937Bfab";
     std::string addr = full;
-    if (addr.size() == 42 && addr[0] == '0' && (addr[1] == 'x' || addr[1] == 'X')) addr = addr.substr(2);
-    if (addr.size() != ADDRESS_LENGTH) {
+    if (addr.size() == 42 && addr[0] == '0' && (addr[1] == 'x' || addr[1] == 'X'))
+        addr = addr.substr(2);
+    if (addr.size() != ADDRESS_LENGTH)
+    {
         std::cerr << "Address has wrong length: " << addr.size() << "\n";
         return;
     }
@@ -590,22 +577,22 @@ static void evaluate_hardcoded_address()
     int total = s_sym + s_lead + s_seq + s_van + s_most;
     int sanity = main_heuristic(addr.c_str()); // confirmation
 
-    std::vector<std::pair<std::string,int>> parts = {
+    std::vector<std::pair<std::string, int>> parts = {
         {"symmetry", s_sym},
         {"leading_and_trailing_repeats", s_lead},
         {"sequence", s_seq},
         {"vanity_words", s_van},
-        {"mostly_same", s_most}
-    };
-    std::sort(parts.begin(), parts.end(), [](auto &a, auto &b){ return a.second > b.second; });
+        {"mostly_same", s_most}};
+    std::sort(parts.begin(), parts.end(), [](auto &a, auto &b)
+              { return a.second > b.second; });
 
     std::cout << "Breakdown (largest first):\n";
-    for (auto &p : parts) {
+    for (auto &p : parts)
+    {
         std::cout << "  " << p.first << ": " << p.second << "\n";
     }
     std::cout << "Sum of parts: " << total << "  main_heuristic(addr): " << sanity << "\n";
 }
-
 
 int main()
 {

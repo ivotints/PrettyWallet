@@ -2,7 +2,7 @@ CXX = g++
 CXXFLAGS = -Ofast -march=native -flto -funroll-loops -pthread
 LDFLAGS = -lsecp256k1 -pthread
 TARGET = PrettyWalletGenerator
-SRC = main.cpp
+SRC = main.cpp vanity.cpp
 
 $(TARGET): $(SRC)
 	$(CXX) $(CXXFLAGS) $(SRC) $(LDFLAGS) -o $(TARGET)

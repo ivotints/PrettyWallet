@@ -24,7 +24,9 @@ g++ -Ofast -march=native -flto -funroll-loops main.cpp -lsecp256k1 -pthread && .
 #include <cstdint>
 #include <unordered_set>
 
-constexpr int ADDRESS_LENGTH = 40;
+#include "vanity.hpp"
+#include "PrettyWalletGenerator.hpp"
+
 
 // Pre-computed lookup tables for hex conversion (initialized once)
 alignas(64) static char hex_chars_lower[16] = {'0','1','2','3','4','5','6','7','8','9','a','b','c','d','e','f'};
@@ -367,72 +369,6 @@ int heuristic_repeated_pairs(const char* addr)
     }
     if (end_pair_count >= 2) {
         score += end_pair_count * 2;
-    }
-
-    return (score > 0) ? (1 << score) : 0;
-}
-
-// Heuristic for containing vanity words with proper scoring
-int heuristic_vanity_words(const char* addr)
-{
-    // Make lowercase copy for matching
-    char lower[ADDRESS_LENGTH + 1];
-    for (int i = 0; i < ADDRESS_LENGTH; ++i) {
-        char c = addr[i];
-        lower[i] = (c >= 'A' && c <= 'F') ? (c + 32) : c;
-    }
-    lower[ADDRESS_LENGTH] = '\0';
-
-    int score = 0;
-
-    // check for word from begining. if found, assign as much points, as word length.
-    // ace... - 3 points
-    // look next, what if there second word
-    // acebabe... - 7 points
-    // do same check from end
-    // acebabe.............................beef - 11 points
-
-    static const char *words[] = {
-        "c0ffee", "deface", "decade", "facade", "1337", "dead", "beef", "cafe",
-        "babe", "face", "fade", "feed", "c0de", "b00b", "f00d", "bead", "deaf",
-        "deed", "ace", "add", "bad", "bed", "bee", "cab", "dad", "fab", "fee",
-        "d0c"
-    };
-    const int word_count = sizeof(words) / sizeof(words[0]);
-
-    // Precompute lengths
-    int lens[sizeof(words) / sizeof(words[0])];
-    for (int i = 0; i < word_count; ++i) lens[i] = std::strlen(words[i]);
-
-    int start = 0;
-    int end = ADDRESS_LENGTH;
-
-    // Greedily match longest vanity words at the start (consecutive)
-    while (start < end) {
-        int best_len = 0;
-        for (int i = 0; i < word_count; ++i) {
-            int l = lens[i];
-            if (start + l <= end && std::memcmp(lower + start, words[i], l) == 0) {
-                if (l > best_len) best_len = l;
-            }
-        }
-        if (best_len == 0) break;
-        score += best_len;
-        start += best_len;
-    }
-
-    // Greedily match longest vanity words at the end (consecutive)
-    while (start < end) {
-        int best_len = 0;
-        for (int i = 0; i < word_count; ++i) {
-            int l = lens[i];
-            if (end - l >= start && std::memcmp(lower + end - l, words[i], l) == 0) {
-                if (l > best_len) best_len = l;
-            }
-        }
-        if (best_len == 0) break;
-        score += best_len;
-        end -= best_len;
     }
 
     return (score > 0) ? (1 << score) : 0;
