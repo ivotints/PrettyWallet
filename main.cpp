@@ -444,8 +444,55 @@ int heuristic_sequence(const char* addr)
     return 0;
 }
 
-// Heuristic for concentration of characters (like monopoly index)
-int heuristic_mostly_same(const char* addr)
+// // Heuristic for concentration of characters (like monopoly index)
+// int heuristic_mostly_same(const char* addr)
+// {
+//     static int map[256];
+//     static bool initialized = false;
+//     if (!initialized) {
+//         for (int i = 0; i < 256; ++i) map[i] = -1;
+//         for (char c = '0'; c <= '9'; ++c) map[static_cast<unsigned char>(c)] = c - '0';
+//         for (char c = 'A'; c <= 'F'; ++c) map[static_cast<unsigned char>(c)] = 10 + (c - 'A');
+//         for (char c = 'a'; c <= 'f'; ++c) map[static_cast<unsigned char>(c)] = 16 + (c - 'a');
+//         initialized = true;
+//     }
+
+//     uint8_t counts[22] = {0};
+
+//     for (int i = 0; i < ADDRESS_LENGTH; i++) {
+//         int index = map[static_cast<unsigned char>(addr[i])];
+//         ++counts[index];
+//     }
+
+//     int hhi = 0;
+//     __m256i sum = _mm256_setzero_si256();
+//     size_t i = 0;
+//     for (; i + 16 < 22; i += 16) {
+//         __m128i v = _mm_loadu_si128(reinterpret_cast<__m128i*>(&counts[i]));
+//         __m256i v16 = _mm256_cvtepu8_epi16(v);
+//         __m256i sq = _mm256_mullo_epi16(v16, v16);
+//         sum = _mm256_add_epi16(sum, sq);
+//     }
+//     for (; i < 22; ++i) {
+//         hhi += static_cast<int>(counts[i]) * counts[i];
+//     }
+//     __m128i low = _mm256_extracti128_si256(sum, 0);
+//     __m128i high = _mm256_extracti128_si256(sum, 1);
+//     __m128i total = _mm_add_epi16(low, high);
+//     total = _mm_hadd_epi16(total, _mm_setzero_si128());
+//     total = _mm_hadd_epi16(total, total);
+//     total = _mm_hadd_epi16(total, total);
+//     hhi += _mm_extract_epi16(total, 0);
+
+//     hhi -= 200;
+//     if (hhi < 0)
+//         hhi = 0;
+
+//     return hhi;
+// }
+
+// Heuristic for concentration of characters (like monopoly index) - no SIMD version
+int heuristic_mostly_same_2(const char* addr)
 {
     static int map[256];
     static bool initialized = false;
@@ -461,28 +508,15 @@ int heuristic_mostly_same(const char* addr)
 
     for (int i = 0; i < ADDRESS_LENGTH; i++) {
         int index = map[static_cast<unsigned char>(addr[i])];
-        ++counts[index];
+        if (index >= 0 && index < 22) {
+            ++counts[index];
+        }
     }
 
     int hhi = 0;
-    __m256i sum = _mm256_setzero_si256();
-    size_t i = 0;
-    for (; i + 16 < 22; i += 16) {
-        __m128i v = _mm_loadu_si128(reinterpret_cast<__m128i*>(&counts[i]));
-        __m256i v16 = _mm256_cvtepu8_epi16(v);
-        __m256i sq = _mm256_mullo_epi16(v16, v16);
-        sum = _mm256_add_epi16(sum, sq);
-    }
-    for (; i < 22; ++i) {
+    for (int i = 0; i < 22; ++i) {
         hhi += static_cast<int>(counts[i]) * counts[i];
     }
-    __m128i low = _mm256_extracti128_si256(sum, 0);
-    __m128i high = _mm256_extracti128_si256(sum, 1);
-    __m128i total = _mm_add_epi16(low, high);
-    total = _mm_hadd_epi16(total, _mm_setzero_si128());
-    total = _mm_hadd_epi16(total, total);
-    total = _mm_hadd_epi16(total, total);
-    hhi += _mm_extract_epi16(total, 0);
 
     hhi -= 200;
     if (hhi < 0)
@@ -498,7 +532,7 @@ int main_heuristic(const char* addr)
     score += heuristic_leading_and_trailing_repeats(addr);
     score += heuristic_sequence(addr);
     score += heuristic_vanity_words(addr);
-    score += heuristic_mostly_same(addr);
+    score += heuristic_mostly_same_2(addr);
     return score;
 }
 
