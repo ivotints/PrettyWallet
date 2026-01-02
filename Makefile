@@ -1,7 +1,7 @@
 CXX = g++
 CXXFLAGS = -Ofast -mavx2
 LDFLAGS = -lsecp256k1
-TARGET = a.out
+TARGET = PrettyWalletGenerator
 SRC = main.cpp
 
 $(TARGET): $(SRC)
