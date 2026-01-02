@@ -558,7 +558,7 @@ int main_heuristic(const char *addr)
 // Print per-heuristic contributions for a hardcoded address
 static void evaluate_hardcoded_address()
 {
-    const std::string full = "FeeBEE3CC37600fe267e8cB12d9597F01937Bfab";
+    const std::string full = "99999FcE889D3a2de60029d989034d5c0D299999";
     std::string addr = full;
     if (addr.size() == 42 && addr[0] == '0' && (addr[1] == 'x' || addr[1] == 'X'))
         addr = addr.substr(2);

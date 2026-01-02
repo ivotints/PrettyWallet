@@ -62,7 +62,7 @@ static constexpr std::pair<std::array<ConstNode, MAX_NODES>, int> build_trie()
 
     const char *words[] = {
         "c0ffee", "C0ffee", "C0FFEE",
-        "cafe", "Cafe", "CAFE",
+        // "cafe", "Cafe", "CAFE",
         "ace", "Ace", "ACE",
         "beef", "Beef", "BEEF",
         "dead", "Dead", "DEAD",
@@ -72,23 +72,24 @@ static constexpr std::pair<std::array<ConstNode, MAX_NODES>, int> build_trie()
         "1337",
         "babe", "Babe", "BABE",
         "face", "Face", "FACE",
-        "fade", "Fade", "FADE",
+        // "fade", "Fade", "FADE",
         "feed", "Feed", "FEED",
         "c0de", "C0de", "C0DE",
         "b00b", "B00b", "B00B",
         "f00d", "F00d", "F00D",
-        "bead", "Bead", "BEAD",
-        "deaf", "Deaf", "DEAF",
-        "deed", "Deed", "DEED",
-        "add", "Add", "ADD",
+        // "bead", "Bead", "BEAD",
+        // "deaf", "Deaf", "DEAF",
+        // "deed", "Deed", "DEED",
+        // "add", "Add", "ADD",
         "bad", "Bad", "BAD",
         "bed", "Bed", "BED",
-        "bee", "Bee", "BEE",
-        "cab", "Cab", "CAB",
+        // "bee", "Bee", "BEE",
+        // "cab", "Cab", "CAB",
         "dad", "Dad", "DAD",
-        "fab", "Fab", "FAB",
-        "fee", "Fee", "FEE",
-        "d0c", "D0c", "D0C"};
+        // "fab", "Fab", "FAB",
+        // "fee", "Fee", "FEE",
+        // "d0c", "D0c", "D0C",
+    };
 
     for (const char *w : words)
         nodes_count = add_word_const(nodes, nodes_count, w);
@@ -119,40 +120,9 @@ static inline int match_from(const char *s, int pos, int limit)
     return best;
 }
 
-int heuristic_vanity_words_lowercase(const char *addr) {
-    int score = 0;
-
-    score -= 2; // i dont like lowercase
-    return score ? score > 0 : 0;
-}
-
-int heuristic_vanity_words_uppercase(const char *addr) {
-    int score = 0;
-
-    score -= 1; // i dont like uppercase
-    return score ? score > 0 : 0;
-}
-
-int heuristic_vanity_words_capital(const char *addr) {
-    int score = 0;
-
-    return score;
-}
-
-
 // Consolidated vanity heuristic (trie-based matching with greedy partitioning)
 int heuristic_vanity_words(const char *addr)
 {
-    // here will be just call of 3 functions and return;
-    // int score = 0;
-
-    // score += heuristic_vanity_words_lowercase(addr);
-    // score += heuristic_vanity_words_uppercase(addr);
-    // score += heuristic_vanity_words_capital(addr);
-
-
-    //return score ? (1 << score) : 0;
-
     int score = 0;
     int start = 0;
     int end = ADDRESS_LENGTH;
