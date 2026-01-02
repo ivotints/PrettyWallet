@@ -1,6 +1,6 @@
 CXX = g++
-CXXFLAGS = -Ofast -mavx2
-LDFLAGS = -lsecp256k1
+CXXFLAGS = -Ofast -march=native -flto -funroll-loops -pthread
+LDFLAGS = -lsecp256k1 -pthread
 TARGET = PrettyWalletGenerator
 SRC = main.cpp
 

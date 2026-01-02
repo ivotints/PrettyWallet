@@ -1,5 +1,5 @@
 /*
-g++ -Ofast -mavx2 main.cpp -lsecp256k1 && ./a.out
+g++ -Ofast -march=native -flto -funroll-loops main.cpp -lsecp256k1 -pthread && ./a.out
 */
 
 #include <secp256k1.h>
@@ -20,14 +20,37 @@ g++ -Ofast -mavx2 main.cpp -lsecp256k1 && ./a.out
 #include <thread>
 #include <mutex>
 #include <atomic>
-#include <map>
 #include <random>
 #include <cstdint>
+#include <unordered_set>
 
-const int ADDRESS_LENGTH = 40;
+constexpr int ADDRESS_LENGTH = 40;
+
+// Pre-computed lookup tables for hex conversion (initialized once)
+alignas(64) static char hex_chars_lower[16] = {'0','1','2','3','4','5','6','7','8','9','a','b','c','d','e','f'};
+alignas(64) static int hex_values[256];
+alignas(64) static bool hex_valid[256];
+
+// Initialize lookup tables
+static struct HexTableInit {
+    HexTableInit() {
+        std::memset(hex_values, 0, sizeof(hex_values));
+        std::memset(hex_valid, 0, sizeof(hex_valid));
+        for (int i = 0; i < 10; ++i) {
+            hex_values['0' + i] = i;
+            hex_valid['0' + i] = true;
+        }
+        for (int i = 0; i < 6; ++i) {
+            hex_values['a' + i] = 10 + i;
+            hex_values['A' + i] = 10 + i;
+            hex_valid['a' + i] = true;
+            hex_valid['A' + i] = true;
+        }
+    }
+} hex_table_init;
 
 std::atomic<bool> stop_flag(false);
-std::atomic<int> total_count(0);
+std::atomic<uint64_t> total_count(0);
 std::mutex file_mutex;
 
 void signal_handler(int signal)
@@ -126,13 +149,28 @@ void keccak256(const uint8_t *in, size_t inlen, uint8_t out[32])
 
 static std::string to_hex(const uint8_t *data, size_t len, bool uppercase = false)
 {
-    std::ostringstream oss;
-    oss << std::hex << std::setfill('0');
-    if (uppercase)
-        oss << std::uppercase;
-    for (size_t i = 0; i < len; ++i)
-        oss << std::setw(2) << (unsigned)data[i];
-    return oss.str();
+    std::string result;
+    result.reserve(len * 2);
+    for (size_t i = 0; i < len; ++i) {
+        char c1 = hex_chars_lower[data[i] >> 4];
+        char c2 = hex_chars_lower[data[i] & 0xF];
+        if (uppercase) {
+            if (c1 >= 'a') c1 -= 32;
+            if (c2 >= 'a') c2 -= 32;
+        }
+        result.push_back(c1);
+        result.push_back(c2);
+    }
+    return result;
+}
+
+// Fast hex conversion directly to char array (no allocation)
+static void to_hex_fast(const uint8_t *data, size_t len, char *out)
+{
+    for (size_t i = 0; i < len; ++i) {
+        out[i * 2] = hex_chars_lower[data[i] >> 4];
+        out[i * 2 + 1] = hex_chars_lower[data[i] & 0xF];
+    }
 }
 
 static std::string to_checksum_address(const uint8_t addr20[20])
@@ -162,8 +200,22 @@ static std::string to_checksum_address(const uint8_t addr20[20])
 
 /* ===================== HEURISTICS ===================== */
 
+// Fast inline hex value lookup
+inline int get_hex_value(char c) {
+    return hex_values[static_cast<unsigned char>(c)];
+}
+
+// Convert address to lowercase in-place (for pattern matching)
+inline void to_lower_inplace(char* addr, size_t len) {
+    for (size_t i = 0; i < len; ++i) {
+        if (addr[i] >= 'A' && addr[i] <= 'F') {
+            addr[i] += 32;
+        }
+    }
+}
+
 // Heuristic for repeating characters from beginning and end (symmetry)
-int heuristic_symmetry(const std::string &addr)
+int heuristic_symmetry(const char* addr)
 {
     int score = 0;
     for (int i = 0; i < ADDRESS_LENGTH / 2; ++i)
@@ -181,7 +233,7 @@ int heuristic_symmetry(const std::string &addr)
 }
 
 // Heuristic for leading repeats of same character
-int heuristic_leading_and_trailing_repeats(const std::string &addr)
+int heuristic_leading_and_trailing_repeats(const char* addr)
 {
     char leading_c = addr[0];
     int leading_count = 1;
@@ -230,106 +282,184 @@ int heuristic_leading_and_trailing_repeats(const std::string &addr)
 }
 
 // Heuristic for alternating characters (ABABAB...) from beginning and end
-int heuristic_alternating(const std::string &addr)
+int heuristic_alternating(const char* addr)
 {
     int score = 0;
 
     // From beginning
-    if (ADDRESS_LENGTH >= 2) {
-        char a = addr[0];
-        char b = addr[1];
-        if (a != b) {
-            int len = 2;
-            for (size_t i = 2; i < ADDRESS_LENGTH; ++i) {
-                char expected = (i % 2 == 0) ? a : b;
-                if (addr[i] != expected) break;
-                len++;
-            }
-            int pairs = len - 1;
-            score += pairs;
+    char a = addr[0];
+    char b = addr[1];
+    if (a >= 'A' && a <= 'F') a += 32;
+    if (b >= 'A' && b <= 'F') b += 32;
+
+    if (a != b) {
+        int len = 2;
+        for (int i = 2; i < ADDRESS_LENGTH; ++i) {
+            char c = addr[i];
+            if (c >= 'A' && c <= 'F') c += 32;
+            char expected = (i % 2 == 0) ? a : b;
+            if (c != expected) break;
+            len++;
+        }
+        if (len >= 4) {
+            score += (len - 2) * 2;
         }
     }
 
     // From end
-    if (ADDRESS_LENGTH >= 2) {
-        char c = addr[ADDRESS_LENGTH - 2];
-        char d = addr[ADDRESS_LENGTH - 1];
-        if (c != d) {
-            int len = 2;
-            for (int i = ADDRESS_LENGTH - 3; i >= 0; --i) {
-                int pos_from_end = ADDRESS_LENGTH - 1 - i;
-                char expected = (pos_from_end % 2 == 0) ? c : d;
-                if (addr[i] != expected) break;
-                len++;
-            }
-            int pairs = len - 1;
-            score += pairs;
+    char c1 = addr[ADDRESS_LENGTH - 2];
+    char d = addr[ADDRESS_LENGTH - 1];
+    if (c1 >= 'A' && c1 <= 'F') c1 += 32;
+    if (d >= 'A' && d <= 'F') d += 32;
+
+    if (c1 != d) {
+        int len = 2;
+        for (int i = ADDRESS_LENGTH - 3; i >= 0; --i) {
+            char c = addr[i];
+            if (c >= 'A' && c <= 'F') c += 32;
+            int pos_from_end = ADDRESS_LENGTH - 1 - i;
+            char expected = (pos_from_end % 2 == 0) ? c1 : d;
+            if (c != expected) break;
+            len++;
+        }
+        if (len >= 4) {
+            score += (len - 2) * 2;
         }
     }
 
     return (score > 0) ? (1 << score) : 0;
 }
 
-// Heuristic for repeated pairs (AABBCC...)
-// int heuristic_repeated_pairs(const std::string &addr)
-// {
-
-// }
-
-// Heuristic for containing vanity words - more score at start/end
-int heuristic_vanity_words(const std::string &addr)
+// Heuristic for repeated pairs (AABBCCDD...)
+int heuristic_repeated_pairs(const char* addr)
 {
-    std::string hex_part = addr;
-    std::transform(hex_part.begin(), hex_part.end(), hex_part.begin(), ::tolower);
-    static std::vector<std::string> vanities = {"beef", "dead", "1337", };
-
     int score = 0;
-    for (const auto &van : vanities)
-    {
-        size_t pos = hex_part.find(van);
-        if (pos != std::string::npos)
-        {
-            int points = van.size() * 1; // 1 point per character
-            if (pos == 0)
-                points = van.size() * 3; // at start
-            else if (pos + van.size() == ADDRESS_LENGTH)
-                points = van.size() * 3; // at end
-            score += points;
+
+    // From beginning
+    int pair_count = 0;
+    for (int i = 0; i + 1 < ADDRESS_LENGTH; i += 2) {
+        char c1 = addr[i];
+        char c2 = addr[i + 1];
+        if (c1 >= 'A' && c1 <= 'F') c1 += 32;
+        if (c2 >= 'A' && c2 <= 'F') c2 += 32;
+        if (c1 == c2) {
+            pair_count++;
+        } else {
+            break;
         }
     }
-    return score;
+    if (pair_count >= 2) {
+        score += pair_count * 2;
+    }
+
+    // From end
+    int end_pair_count = 0;
+    for (int i = ADDRESS_LENGTH - 1; i >= 1; i -= 2) {
+        char c1 = addr[i - 1];
+        char c2 = addr[i];
+        if (c1 >= 'A' && c1 <= 'F') c1 += 32;
+        if (c2 >= 'A' && c2 <= 'F') c2 += 32;
+        if (c1 == c2) {
+            end_pair_count++;
+        } else {
+            break;
+        }
+    }
+    if (end_pair_count >= 2) {
+        score += end_pair_count * 2;
+    }
+
+    return (score > 0) ? (1 << score) : 0;
 }
 
-inline int get_hex_value(char c)
+// Heuristic for containing vanity words with proper scoring
+int heuristic_vanity_words(const char* addr)
 {
-    if (c >= '0' && c <= '9')
-        return c - '0';
-    if (c >= 'a' && c <= 'f')
-        return 10 + (c - 'a');
-    return 10 + (c - 'A');
+    // Make lowercase copy for matching
+    char lower[ADDRESS_LENGTH + 1];
+    for (int i = 0; i < ADDRESS_LENGTH; ++i) {
+        char c = addr[i];
+        lower[i] = (c >= 'A' && c <= 'F') ? (c + 32) : c;
+    }
+    lower[ADDRESS_LENGTH] = '\0';
+
+    int score = 0;
+
+    // check for word from begining. if found, assign as much points, as word length.
+    // ace... - 3 points
+    // look next, what if there second word
+    // acebabe... - 7 points
+    // do same check from end
+    // acebabe.............................beef - 11 points
+
+    static const char *words[] = {
+        "c0ffee", "deface", "decade", "facade", "1337", "dead", "beef", "cafe",
+        "babe", "face", "fade", "feed", "c0de", "b00b", "f00d", "bead", "deaf",
+        "deed", "ace", "add", "bad", "bed", "bee", "cab", "dad", "fab", "fee",
+        "d0c"
+    };
+    const int word_count = sizeof(words) / sizeof(words[0]);
+
+    // Precompute lengths
+    int lens[sizeof(words) / sizeof(words[0])];
+    for (int i = 0; i < word_count; ++i) lens[i] = std::strlen(words[i]);
+
+    int start = 0;
+    int end = ADDRESS_LENGTH;
+
+    // Greedily match longest vanity words at the start (consecutive)
+    while (start < end) {
+        int best_len = 0;
+        for (int i = 0; i < word_count; ++i) {
+            int l = lens[i];
+            if (start + l <= end && std::memcmp(lower + start, words[i], l) == 0) {
+                if (l > best_len) best_len = l;
+            }
+        }
+        if (best_len == 0) break;
+        score += best_len;
+        start += best_len;
+    }
+
+    // Greedily match longest vanity words at the end (consecutive)
+    while (start < end) {
+        int best_len = 0;
+        for (int i = 0; i < word_count; ++i) {
+            int l = lens[i];
+            if (end - l >= start && std::memcmp(lower + end - l, words[i], l) == 0) {
+                if (l > best_len) best_len = l;
+            }
+        }
+        if (best_len == 0) break;
+        score += best_len;
+        end -= best_len;
+    }
+
+    return (score > 0) ? (1 << score) : 0;
 }
 
-int heuristic_sequence(const std::string &addr)
+int heuristic_sequence(const char* addr)
 {
     int max_score = 0;
-    int val = get_hex_value(addr[0]);
-    // check ascending
+    int val = hex_values[static_cast<unsigned char>(addr[0])];
+
+    // check ascending from start
     int len_asc = 1;
-    for (size_t j = 1; j < 40; ++j)
+    for (int j = 1; j < 40; ++j)
     {
-        int next_val = get_hex_value(addr[j]);
+        int next_val = hex_values[static_cast<unsigned char>(addr[j])];
         if (next_val != val + 1)
             break;
         len_asc++;
         val = next_val;
     }
 
-    // check descending
-    val = get_hex_value(addr[0]);
+    // check descending from start
+    val = hex_values[static_cast<unsigned char>(addr[0])];
     int len_desc = 1;
-    for (size_t j = 1; j < 40; ++j)
+    for (int j = 1; j < 40; ++j)
     {
-        int next_val = get_hex_value(addr[j]);
+        int next_val = hex_values[static_cast<unsigned char>(addr[j])];
         if (next_val != val - 1)
             break;
         len_desc++;
@@ -337,13 +467,12 @@ int heuristic_sequence(const std::string &addr)
     }
     max_score = len_asc + len_desc - 2;
 
-    // from end
-    val = get_hex_value(addr[39]);
-    // check descending from end
+    // from end - check descending
+    val = hex_values[static_cast<unsigned char>(addr[39])];
     int len_desc_end = 1;
     for (int j = 38; j >= 0; --j)
     {
-        int next_val = get_hex_value(addr[j]);
+        int next_val = hex_values[static_cast<unsigned char>(addr[j])];
         if (next_val != val - 1)
             break;
         len_desc_end++;
@@ -351,11 +480,11 @@ int heuristic_sequence(const std::string &addr)
     }
 
     // check ascending from end
-    val = get_hex_value(addr[39]);
+    val = hex_values[static_cast<unsigned char>(addr[39])];
     int len_asc_end = 1;
     for (int j = 38; j >= 0; --j)
     {
-        int next_val = get_hex_value(addr[j]);
+        int next_val = hex_values[static_cast<unsigned char>(addr[j])];
         if (next_val != val + 1)
             break;
         len_asc_end++;
@@ -380,7 +509,7 @@ int heuristic_sequence(const std::string &addr)
 }
 
 // Heuristic for concentration of characters (like monopoly index)
-int heuristic_mostly_same(const std::string &addr)
+int heuristic_mostly_same(const char* addr)
 {
     static int map[256];
     static bool initialized = false;
@@ -394,8 +523,8 @@ int heuristic_mostly_same(const std::string &addr)
 
     uint8_t counts[22] = {0};
 
-    for (char c : addr) {
-        int index = map[static_cast<unsigned char>(c)];
+    for (int i = 0; i < ADDRESS_LENGTH; i++) {
+        int index = map[static_cast<unsigned char>(addr[i])];
         ++counts[index];
     }
 
@@ -426,20 +555,19 @@ int heuristic_mostly_same(const std::string &addr)
     return hhi;
 }
 
-// Main heuristic function
-int main_heuristic(const std::string &addr)
+int main_heuristic(const char* addr)
 {
     int score = 0;
     score += heuristic_symmetry(addr);
     score += heuristic_leading_and_trailing_repeats(addr);
     score += heuristic_sequence(addr);
-
-    // score += heuristic_alternating(addr);
-    // score += heuristic_repeated_pairs(addr);
-    // score += heuristic_vanity_words(addr);
+    score += heuristic_vanity_words(addr);
     score += heuristic_mostly_same(addr);
     return score;
 }
+
+// Batch size for reducing lock contention
+constexpr int BATCH_SIZE = 1000;
 
 void worker_function()
 {
@@ -448,14 +576,32 @@ void worker_function()
         return;
 
     std::random_device rd;
-    std::seed_seq seq{rd(), rd(), rd(), rd()};
+    std::seed_seq seq{rd(), rd(), rd(), rd(), rd(), rd(), rd(), rd()};
     std::mt19937_64 rng;
     rng.seed(seq);
 
+    // Pre-allocated buffers
+    uint8_t private_key[32];
+    uint8_t pubkey_ser[65];
+    uint8_t hash[32];
+    uint8_t wallet_address[20];
+    char addr_hex[41];  // 40 hex chars + null terminator
+    addr_hex[40] = '\0';
+
+    // Local buffer for batch results
+    struct LocalResult {
+        int score;
+        char addr[41];
+        char priv_key[65];
+    };
+    std::vector<LocalResult> local_results;
+    local_results.reserve(16);
+
+    int local_count = 0;
+
     while (!stop_flag)
     {
-        uint8_t private_key[32];
-
+        // Generate random private key
         for (int k = 0; k < 4; ++k)
         {
             reinterpret_cast<uint64_t *>(private_key)[k] = rng();
@@ -465,27 +611,54 @@ void worker_function()
         if (!secp256k1_ec_pubkey_create(ctx, &pubkey, private_key))
             continue;
 
-        uint8_t pubkey_ser[65];
         size_t pubkey_len = sizeof(pubkey_ser);
         secp256k1_ec_pubkey_serialize(ctx, pubkey_ser, &pubkey_len, &pubkey, SECP256K1_EC_UNCOMPRESSED);
 
-        uint8_t hash[32];
         keccak256(pubkey_ser + 1, 64, hash);
-
-        uint8_t wallet_address[20];
         memcpy(wallet_address, hash + 12, 20);
 
-        std::string addr_str = to_checksum_address(wallet_address);
+        int score = 0;
+        std::string checksum_addr = to_checksum_address(wallet_address);
+        score = main_heuristic(checksum_addr.c_str());
 
-        int score = main_heuristic(addr_str);
         if (score > 50)
         {
-            std::lock_guard<std::mutex> lock(file_mutex);
-            std::ofstream file("PrettyAddresses.csv", std::ios::app);
-            file << score << "," << addr_str << "," << to_hex(private_key, 32) << std::endl;
+            LocalResult res;
+            res.score = score;
+            std::string checksum_addr = to_checksum_address(wallet_address);
+            memcpy(res.addr, checksum_addr.c_str(), 41);
+            to_hex_fast(private_key, 32, res.priv_key);
+            res.priv_key[64] = '\0';
+            local_results.push_back(res);
         }
 
-        total_count++;
+        local_count++;
+
+        // Batch update counters and write results
+        if (local_count >= BATCH_SIZE)
+        {
+            total_count.fetch_add(local_count, std::memory_order_relaxed);
+            local_count = 0;
+
+            if (!local_results.empty()) {
+                std::lock_guard<std::mutex> lock(file_mutex);
+                std::ofstream file("PrettyAddresses.csv", std::ios::app);
+                for (const auto& res : local_results) {
+                    file << res.score << "," << res.addr << "," << res.priv_key << "\n";
+                }
+                local_results.clear();
+            }
+        }
+    }
+
+    // Final flush
+    total_count.fetch_add(local_count, std::memory_order_relaxed);
+    if (!local_results.empty()) {
+        std::lock_guard<std::mutex> lock(file_mutex);
+        std::ofstream file("PrettyAddresses.csv", std::ios::app);
+        for (const auto& res : local_results) {
+            file << res.score << "," << res.addr << "," << res.priv_key << "\n";
+        }
     }
 
     secp256k1_context_destroy(ctx);
@@ -506,6 +679,7 @@ int main()
 
     // Create worker threads
     unsigned int num_threads = std::thread::hardware_concurrency();
+    num_threads = std::thread::hardware_concurrency() / 2 - 1;
     if (num_threads == 0)
         num_threads = 4;
     std::vector<std::thread> threads;
@@ -518,13 +692,19 @@ int main()
     std::thread display_thread([]()
                                {
     auto start_time = std::chrono::high_resolution_clock::now();
+    uint64_t last_count = 0;
     while (!stop_flag)
     {
         std::this_thread::sleep_for(std::chrono::seconds(1));
         auto current_time = std::chrono::high_resolution_clock::now();
         std::chrono::duration<double> elapsed = current_time - start_time;
-        double speed = total_count.load() / elapsed.count();
-        std::cout << "\rGenerated " << total_count.load() << " addresses, speed: " << speed << " addr/sec" << std::flush;
+        uint64_t current_count = total_count.load(std::memory_order_relaxed);
+        double avg_speed = current_count / elapsed.count();
+        double instant_speed = current_count - last_count;  // per second
+        last_count = current_count;
+        std::cout << "\rGenerated " << current_count << " addresses | Avg: "
+                  << std::fixed << std::setprecision(0) << avg_speed
+                  << " addr/s | Current: " << instant_speed << " addr/s    " << std::flush;
     } });
 
     // Wait for threads
@@ -552,7 +732,7 @@ int main()
         std::getline(ss, addr, ',');
         std::getline(ss, priv, ',');
         // Recalculate score with current heuristic
-        int new_score = main_heuristic(addr);
+        int new_score = main_heuristic(addr.c_str());
         results.push_back({new_score, addr, priv});
     }
     infile.close();
