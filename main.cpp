@@ -444,7 +444,8 @@ int heuristic_sequence(const char* addr)
     return 0;
 }
 
-// Heuristic for concentration of characters (like monopoly index)
+// Heuristic for concentration of characters (like monopoly index) - SIMD version for Linux
+#ifndef _WIN32
 int heuristic_mostly_same(const char* addr)
 {
     static int map[256];
@@ -490,40 +491,43 @@ int heuristic_mostly_same(const char* addr)
 
     return hhi;
 }
+#endif
 
-// // Heuristic for concentration of characters (like monopoly index) - no SIMD version
-// int heuristic_mostly_same_2(const char* addr)
-// {
-//     static int map[256];
-//     static bool initialized = false;
-//     if (!initialized) {
-//         for (int i = 0; i < 256; ++i) map[i] = -1;
-//         for (char c = '0'; c <= '9'; ++c) map[static_cast<unsigned char>(c)] = c - '0';
-//         for (char c = 'A'; c <= 'F'; ++c) map[static_cast<unsigned char>(c)] = 10 + (c - 'A');
-//         for (char c = 'a'; c <= 'f'; ++c) map[static_cast<unsigned char>(c)] = 16 + (c - 'a');
-//         initialized = true;
-//     }
+// Heuristic for concentration of characters (like monopoly index) - no SIMD version for Windows
+#ifdef _WIN32
+int heuristic_mostly_same(const char* addr)
+{
+    static int map[256];
+    static bool initialized = false;
+    if (!initialized) {
+        for (int i = 0; i < 256; ++i) map[i] = -1;
+        for (char c = '0'; c <= '9'; ++c) map[static_cast<unsigned char>(c)] = c - '0';
+        for (char c = 'A'; c <= 'F'; ++c) map[static_cast<unsigned char>(c)] = 10 + (c - 'A');
+        for (char c = 'a'; c <= 'f'; ++c) map[static_cast<unsigned char>(c)] = 16 + (c - 'a');
+        initialized = true;
+    }
 
-//     uint8_t counts[22] = {0};
+    uint8_t counts[22] = {0};
 
-//     for (int i = 0; i < ADDRESS_LENGTH; i++) {
-//         int index = map[static_cast<unsigned char>(addr[i])];
-//         if (index >= 0 && index < 22) {
-//             ++counts[index];
-//         }
-//     }
+    for (int i = 0; i < ADDRESS_LENGTH; i++) {
+        int index = map[static_cast<unsigned char>(addr[i])];
+        if (index >= 0 && index < 22) {
+            ++counts[index];
+        }
+    }
 
-//     int hhi = 0;
-//     for (int i = 0; i < 22; ++i) {
-//         hhi += static_cast<int>(counts[i]) * counts[i];
-//     }
+    int hhi = 0;
+    for (int i = 0; i < 22; ++i) {
+        hhi += static_cast<int>(counts[i]) * counts[i];
+    }
 
-//     hhi -= 200;
-//     if (hhi < 0)
-//         hhi = 0;
+    hhi -= 200;
+    if (hhi < 0)
+        hhi = 0;
 
-//     return hhi;
-// }
+    return hhi;
+}
+#endif
 
 int main_heuristic(const char* addr)
 {
