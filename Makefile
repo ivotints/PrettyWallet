@@ -1,5 +1,5 @@
 CXX = g++
-CXXFLAGS = -Ofast -march=native -flto -funroll-loops -pthread
+CXXFLAGS = -Ofast -flto -funroll-loops -pthread
 SRC = main.cpp vanity.cpp
 TARGET_DIR = build/
 TARGET_NAME = PrettyWalletGenerator
