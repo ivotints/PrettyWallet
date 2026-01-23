@@ -1,5 +1,5 @@
 CXX = g++
-CXXFLAGS = -Ofast -flto -funroll-loops -pthread
+CXXFLAGS = -Ofast -flto -funroll-loops -pthread -std=c++20
 SRC = main.cpp vanity.cpp
 TARGET_DIR = build/
 TARGET_NAME = PrettyWalletGenerator
@@ -16,8 +16,9 @@ ifeq ($(OS),Windows_NT)
 else
 	# Linux
 	DEPS_DIR = ./deps/linux
-	INCLUDES =
+	INCLUDES = -I$(DEPS_DIR)
 	STATIC_LIB = $(DEPS_DIR)/libsecp256k1.a
+	CXXFLAGS += -mavx -mavx2
 	LDFLAGS =  -pthread -static
 endif
 
