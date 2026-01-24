@@ -1,19 +1,33 @@
 # PrettyWallet
 
-A high-performance Ethereum address generator that creates "pretty" addresses based on various heuristics like symmetry, repeating characters, sequences, and vanity words.
+A high-performance Ethereum address generator that generates and scores thousands of addresses per second to find aesthetically pleasing ones.
+
+## What is PrettyWallet?
+
+PrettyWallet generates Ethereum addresses and evaluates them using multiple heuristics to identify "pretty" addresses—those with desirable patterns like symmetry, repeating digits, sequences, and vanity words. Unlike traditional vanity address generators that require you to specify a prefix or suffix upfront, PrettyWallet generates a large pool of addresses and lets you pick from the highest-scoring results based on various aesthetic criteria.
+
+Running on consumer hardware, it generates hundreds of thousands of addresses per second, quickly building a curated collection of visually interesting addresses you can choose from.
 
 ## Features
 
 - Generates Ethereum-compatible addresses with aesthetic patterns
 - Uses multiple heuristics: symmetry, leading/trailing repeats, alternating patterns, sequences, and vanity words
-- Multi-threaded for fast generation
-- Outputs results to CSV with scores
+- Multi-threaded for fast generation (272k+ addresses/sec on 6-core systems)
+- Outputs scored results to CSV for easy browsing
+- Platform-agnostic (Linux and Windows support)
 
 ## Requirements
 
 - C++ compiler (g++ recommended)
 - libsecp256k1 library
 - pthread support
+
+## Project Structure
+
+- `src/`: Source code files (main.cpp, vanity.cpp, heuristic.cpp, keccak.cpp)
+- `include/`: Header files
+- `build/`: Build output directory
+- `deps/`: Platform-specific dependencies (libsecp256k1)
 
 ## Build
 
@@ -30,7 +44,7 @@ make run
 Or directly:
 
 ```bash
-./PrettyWalletGenerator
+./build/PrettyWalletGenerator
 ```
 
 Results are saved to `PrettyAddresses.csv`.
@@ -38,6 +52,17 @@ Results are saved to `PrettyAddresses.csv`.
 ## Usage
 
 The program generates addresses and evaluates them using built-in heuristics. Higher scores indicate "prettier" addresses. Interrupt with Ctrl+C to stop and save results.
+
+## Performance
+
+On a 6-core laptop, the generator achieves around 272,000 addresses per second:
+
+```
+./build/PrettyWalletGenerator
+Generated 11996000 addresses | Avg: 272585 addr/s | Current: 267000 addr/s
+```
+
+For comparison, online tools like vanity-eth.tk generate at about 9,000 addresses per second but focus on specific prefix/suffix vanity addresses. PrettyWallet provides a large pool of aesthetically pleasing addresses scored by multiple heuristics, giving you more variety and choice.
 
 ## Example Output
 
