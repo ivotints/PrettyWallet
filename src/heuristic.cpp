@@ -302,8 +302,8 @@ int heuristic_sequence(const char *addr)
     return 0;
 }
 
-// Heuristic for concentration of characters (like monopoly index) - SIMD version for Linux
-#ifndef _WIN32
+// Heuristic for concentration of characters (like monopoly index) - SIMD version for x86 Linux
+#if defined(__x86_64__) && !defined(_WIN32)
 int heuristic_mostly_same(const char *addr)
 {
     static int map[256];
@@ -359,8 +359,8 @@ int heuristic_mostly_same(const char *addr)
 }
 #endif
 
-// Heuristic for concentration of characters (like monopoly index) - no SIMD version for Windows
-#ifdef _WIN32
+// Heuristic for concentration of characters (like monopoly index) - no SIMD version for non-x86 or Windows
+#if !defined(__x86_64__) || defined(_WIN32)
 int heuristic_mostly_same(const char *addr)
 {
     static int map[256];
