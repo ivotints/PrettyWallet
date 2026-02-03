@@ -7,7 +7,9 @@ constexpr int ADDRESS_LENGTH = 40;
 #include <iomanip>
 #include <cstring>
 #include <stdint.h>
+#ifdef __x86_64__
 #include <immintrin.h>
+#endif
 #include <array>
 #include <string>
 #include <sstream>
