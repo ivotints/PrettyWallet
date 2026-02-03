@@ -1,0 +1,7 @@
+Add graphical interface. can be small one, like in Rufus.
+
+After search is stopped, display just FOUND beautifull addresses.
+
+Change reward system. Vanity words should be less rewarding.
+
+Add reward for combo of vanity words with digits like 0xC0FFEE11111...0000Ace
