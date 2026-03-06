@@ -76,6 +76,12 @@ static std::string to_checksum_address(const uint8_t addr20[20])
 // Batch size for reducing lock contention
 constexpr int BATCH_SIZE = 1000;
 
+// tweak value corresponding to private_key += 1 (big‑endian scalar)
+static const uint8_t tweak_one[32] = {
+    0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+    0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1
+};
+
 void worker_function()
 {
     secp256k1_context *ctx = secp256k1_context_create(SECP256K1_CONTEXT_SIGN);
@@ -107,33 +113,39 @@ void worker_function()
 
     int local_count = 0;
 
+    // iteration counter for reseeding
+    int iter = 0;
+    constexpr int RESEED_INTERVAL = 1'000'000;
+
+    secp256k1_pubkey pubkey;
+
+    // lambda to generate a new random key pair
+    auto reseed = [&]() {
+        do {
+            for (int k = 0; k < 4; ++k)
+                reinterpret_cast<uint64_t *>(private_key)[k] = rng();
+        } while (!secp256k1_ec_pubkey_create(ctx, &pubkey, private_key));
+        iter = 0;
+    };
+
+    // start with a fresh random key
+    reseed();
+
     while (!stop_flag)
     {
-        // Generate random private key
-        for (int k = 0; k < 4; ++k)
-        {
-            reinterpret_cast<uint64_t *>(private_key)[k] = rng();
-        }
-
-        secp256k1_pubkey pubkey;
-        if (!secp256k1_ec_pubkey_create(ctx, &pubkey, private_key))
-            continue;
-
+        // serialize and hash the current public key
         size_t pubkey_len = sizeof(pubkey_ser);
         secp256k1_ec_pubkey_serialize(ctx, pubkey_ser, &pubkey_len, &pubkey, SECP256K1_EC_UNCOMPRESSED);
-
         keccak256(pubkey_ser + 1, 64, hash);
         memcpy(wallet_address, hash + 12, 20);
 
-        int score = 0;
         std::string checksum_addr = to_checksum_address(wallet_address);
-        score = main_heuristic(checksum_addr.c_str());
+        int score = main_heuristic(checksum_addr.c_str());
 
         if (score > 50)
         {
             LocalResult res;
             res.score = score;
-            std::string checksum_addr = to_checksum_address(wallet_address);
             memcpy(res.addr, checksum_addr.c_str(), 41);
             to_hex_fast(private_key, 32, res.priv_key);
             res.priv_key[64] = '\0';
@@ -141,6 +153,21 @@ void worker_function()
         }
 
         local_count++;
+
+        // advance to next key: increment scalar and tweak the pubkey
+        for (int i = 31; i >= 0; --i)
+        {
+            if (++private_key[i] != 0)
+                break;
+        }
+        if (!secp256k1_ec_pubkey_tweak_add(ctx, &pubkey, tweak_one))
+        {
+            // extremely unlikely (point at infinity) – just reseed
+            reseed();
+        }
+
+        if (++iter >= RESEED_INTERVAL)
+            reseed();
 
         // Batch update counters and write results
         if (local_count >= BATCH_SIZE)

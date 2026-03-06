@@ -1,54 +1,74 @@
 CXX = g++
 CXXFLAGS = -Ofast -flto -funroll-loops -pthread -std=c++20
 ARCH = $(shell uname -m)
-PKGCONFIG ?= pkg-config
-SRC = src/main.cpp src/vanity.cpp src/heuristic.cpp src/keccak.cpp
-TARGET_DIR = build/
-TARGET_NAME = PrettyWalletGenerator
-TARGET = $(TARGET_DIR)$(TARGET_NAME)
-LIBS =
 
-# Auto-detect OS
-ifeq ($(OS),Windows_NT)
-	# Windows (MSYS2/MinGW)
-	CXXFLAGS += -DSECP256K1_STATIC
-	DEPS_DIR = ./deps/windows
-	INCLUDES = -I$(DEPS_DIR) -Iinclude
-	STATIC_LIB = $(DEPS_DIR)/libsecp256k1.a
-	LDFLAGS = -static -pthread
-	CLEAN_TARGET = $(TARGET).exe
-else
-	# Linux
-	HAS_SECP := $(shell $(PKGCONFIG) --exists libsecp256k1 && echo 1 || echo 0)
-	ifeq ($(HAS_SECP),1)
-		INCLUDES = -Iinclude $(shell $(PKGCONFIG) --cflags libsecp256k1)
-		LIBS = $(shell $(PKGCONFIG) --libs libsecp256k1)
-		STATIC_LIB =
-		LDFLAGS = -pthread
-	else
-		DEPS_DIR = ./deps/linux
-		INCLUDES = -I$(DEPS_DIR) -Iinclude
-		STATIC_LIB = $(DEPS_DIR)/libsecp256k1.a
-		LDFLAGS =  -pthread -static
-	endif
-	ifeq ($(ARCH),x86_64)
-		CXXFLAGS += -mavx -mavx2
-	endif
-	CLEAN_TARGET = $(TARGET)
+SRC = $(wildcard src/*.cpp)
+OBJ_DIR = build/obj
+TARGET_DIR = build
+TARGET_NAME = PrettyWalletGenerator
+TARGET = $(TARGET_DIR)/$(TARGET_NAME)
+OBJS = $(patsubst src/%.cpp, $(OBJ_DIR)/%.o, $(SRC))
+
+EXTERNAL_DIR = ./external
+
+SECP256K1_DIR = $(EXTERNAL_DIR)/secp256k1
+SECP256K1_LIB = $(SECP256K1_DIR)/.libs/libsecp256k1.a
+
+SODIUM_DIR = $(EXTERNAL_DIR)/libsodium
+SODIUM_LIB = $(SODIUM_DIR)/src/libsodium/.libs/libsodium.a
+
+INCLUDES = -I$(SECP256K1_DIR)/include -I$(SODIUM_DIR)/src/libsodium/include -Iinclude
+LDFLAGS = -pthread
+
+ifeq ($(ARCH),x86_64)
+	CXXFLAGS += -mavx -mavx2
 endif
 
 all: $(TARGET)
 
-$(TARGET): $(SRC)
-	mkdir -p $(TARGET_DIR)
-	$(CXX) $(CXXFLAGS) $(INCLUDES) $(SRC) $(STATIC_LIB) $(LIBS) $(LDFLAGS) -o $(TARGET)
+$(SECP256K1_LIB):
+	@if [ ! -f $(SECP256K1_DIR)/autogen.sh ]; then \
+		echo "Submodules missing, initializing..."; \
+		git submodule update --init --remote; \
+	fi
+	@echo "Building secp256k1..."
+	cd $(SECP256K1_DIR) && ./autogen.sh
+	cd $(SECP256K1_DIR) && ./configure --enable-static --disable-shared --disable-tests --disable-benchmark
+	$(MAKE) -C $(SECP256K1_DIR)
+	@echo "secp256k1 built."
+
+$(SODIUM_LIB):
+	@if [ ! -f $(SODIUM_DIR)/autogen.sh ]; then \
+		echo "Submodules missing, initializing..."; \
+		git submodule update --init --remote; \
+	fi
+	@echo "Building libsodium..."
+	cd $(SODIUM_DIR) && autoreconf -fi
+	cd $(SODIUM_DIR) && ./configure --enable-static --disable-shared
+	$(MAKE) -C $(SODIUM_DIR)
+	@echo "libsodium built."
+
+$(OBJ_DIR)/%.o: src/%.cpp
+	@mkdir -p $(OBJ_DIR)
+	@echo "Compiling $<..."
+	@$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
+
+$(TARGET): $(SECP256K1_LIB) $(SODIUM_LIB) $(OBJS)
+	@mkdir -p $(TARGET_DIR)
+	@echo "Linking $(TARGET)..."
+	@$(CXX) $(CXXFLAGS) $(OBJS) $(SECP256K1_LIB) $(SODIUM_LIB) $(LDFLAGS) -o $(TARGET)
+	@echo "Done."
 
 run: $(TARGET)
 	./$(TARGET)
 
 clean:
-	rm -f $(CLEAN_TARGET)
+	rm -rf $(TARGET_DIR)
+
+fclean: clean
+	$(MAKE) -C $(SECP256K1_DIR) distclean
+	$(MAKE) -C $(SODIUM_DIR) distclean
 
 re: clean all
 
-.PHONY: run clean re
+.PHONY: run clean fclean re
