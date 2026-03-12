@@ -1,5 +1,5 @@
 CXX = g++
-CXXFLAGS = -Ofast -flto -funroll-loops -pthread -std=c++20
+CXXFLAGS = -Ofast -flto -funroll-loops -pthread -std=c++23
 ARCH = $(shell uname -m)
 
 SRC = $(wildcard src/*.cpp)
@@ -61,6 +61,12 @@ $(TARGET): $(SECP256K1_LIB) $(SODIUM_LIB) $(OBJS)
 
 run: $(TARGET)
 	./$(TARGET)
+
+# build and execute under perf profiler
+profile: $(TARGET)
+	@echo "Running $(TARGET) with perf profiler..."
+	perf record -g -- ./$(TARGET)
+# perf report       - to see results
 
 clean:
 	rm -rf $(TARGET_DIR)

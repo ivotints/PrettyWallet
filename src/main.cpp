@@ -1,10 +1,8 @@
-/*
-g++ -Ofast -march=native -flto -funroll-loops main.cpp -lsecp256k1 -pthread && ./a.out
-*/
 #include "PrettyWalletGenerator.hpp"
 #include "hex_tables.hpp"
 #include "keccak.hpp"
 #include "heuristic.hpp"
+#include <sodium.h>
 
 std::atomic<bool> stop_flag(false);
 std::atomic<uint64_t> total_count(0);
@@ -88,11 +86,6 @@ void worker_function()
     if (!ctx)
         return;
 
-    std::random_device rd;
-    std::seed_seq seq{rd(), rd(), rd(), rd(), rd(), rd(), rd(), rd()};
-    std::mt19937_64 rng;
-    rng.seed(seq);
-
     // Pre-allocated buffers
     uint8_t private_key[32];
     uint8_t pubkey_ser[65];
@@ -115,15 +108,14 @@ void worker_function()
 
     // iteration counter for reseeding
     int iter = 0;
-    constexpr int RESEED_INTERVAL = 1'000'000;
+    constexpr int RESEED_INTERVAL = 100'000'000;
 
     secp256k1_pubkey pubkey;
 
     // lambda to generate a new random key pair
     auto reseed = [&]() {
         do {
-            for (int k = 0; k < 4; ++k)
-                reinterpret_cast<uint64_t *>(private_key)[k] = rng();
+            randombytes_buf(private_key, sizeof(private_key));
         } while (!secp256k1_ec_pubkey_create(ctx, &pubkey, private_key));
         iter = 0;
     };
@@ -215,6 +207,11 @@ struct WalletResult
 int main()
 {
     signal(SIGINT, signal_handler);
+
+    if (sodium_init() < 0) {
+        std::cerr << "libsodium initialization failed" << std::endl;
+        return 1;
+    }
 
     // Create worker threads
     unsigned int num_threads = std::thread::hardware_concurrency();
