@@ -1,5 +1,5 @@
 CXX = g++
-CXXFLAGS = -Ofast -flto -funroll-loops -pthread -std=c++23
+CXXFLAGS = -O3 -flto -funroll-loops -pthread -std=c++23 -static
 ARCH = $(shell uname -m)
 
 SRC = $(wildcard src/*.cpp)
